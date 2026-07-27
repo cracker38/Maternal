@@ -1,0 +1,37 @@
+{
+  "name": "rmdp-backend",
+  "version": "1.0.0",
+  "description": "Rwanda Maternal Digital Platform API",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "seed-passwords": "node scripts/ensure-passwords.js",
+    "migrate:db": "node scripts/migrate-database.js",
+    "setup:features": "npm run migrate:db && node scripts/ensure-investigations-schema.js && node scripts/ensure-ambulance-schema.js && node scripts/ensure-demo-districts.js",
+    "smoke": "node scripts/smoke-test.js",
+    "verify:chw": "node scripts/verify-chw.js",
+    "verify:dashboards": "node scripts/verify-dashboards.js",
+    "verify:ambulance": "node scripts/verify-ambulance.js",
+    "verify:investigations": "node scripts/verify-investigations.js",
+    "seed:districts": "node scripts/ensure-demo-districts.js",
+    "seed:investigations": "node scripts/ensure-investigations-schema.js",
+    "db:info": "node scripts/db-info.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.2.0",
+    "mysql2": "^3.23.0",
+    "sql.js": "^1.13.0",
+    "sql.js": "^1.14.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
