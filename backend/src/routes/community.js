@@ -49,7 +49,7 @@ router.get('/tasks', authenticate, async (req, res) => {
       params.push(req.query.status);
     }
 
-    sql += ' ORDER BY FIELD(ft.status,\'pending\',\'in_progress\',\'completed\'), ft.due_date ASC LIMIT 100';
+    sql += ' ORDER BY CASE ft.status WHEN \'pending\' THEN 1 WHEN \'in_progress\' THEN 2 WHEN \'completed\' THEN 3 ELSE 4 END, ft.due_date ASC LIMIT 100';
     const [tasks] = await pool.execute(sql, params);
 
     const missedParams = [];
@@ -61,7 +61,7 @@ router.get('/tasks', authenticate, async (req, res) => {
       JOIN anc_visits av ON av.id = (
         SELECT av2.id FROM anc_visits av2 WHERE av2.pregnancy_id = p.id ORDER BY av2.visit_number DESC LIMIT 1
       )
-      WHERE p.status = 'anc' AND av.next_visit_date < CURDATE()`;
+      WHERE p.status = 'anc' AND av.next_visit_date < date('now')`;
 
     if (scope.level === 'facility' && scope.facilityId) {
       missedSql += ' AND p.facility_id = ?';
@@ -129,12 +129,12 @@ router.patch('/tasks/:id', authenticate, async (req, res) => {
     }
     await pool.execute(
       `UPDATE followup_tasks SET
-        status = COALESCE(?, status),
-        notes = COALESCE(?, notes),
-        assigned_to = COALESCE(?, assigned_to),
-        completed_at = IF(? = 'completed', NOW(), completed_at)
+        status = CASE WHEN ? IS NOT NULL THEN ? ELSE status END,
+        notes = CASE WHEN ? IS NOT NULL THEN ? ELSE notes END,
+        assigned_to = CASE WHEN ? IS NOT NULL THEN ? ELSE assigned_to END,
+        completed_at = CASE WHEN ? = 'completed' THEN ? ELSE completed_at END
        WHERE id = ?`,
-      [status || null, notes || null, assigned_to ?? null, status || null, req.params.id]
+      [status || null, status || null, notes || null, notes || null, assigned_to ?? null, assigned_to ?? null, status || null, new Date().toISOString().slice(0,19).replace('T',' '), req.params.id]
     );
     res.json({ ok: true });
   } catch (e) {
@@ -167,7 +167,7 @@ router.post('/assign-missed', authenticate, authorize('midwife', 'chw'), async (
 
     const [result] = await pool.execute(
       `INSERT INTO followup_tasks (pregnancy_id, facility_id, assigned_to, task_type, title, due_date, status, notes)
-       VALUES (?, ?, ?, ?, ?, CURDATE(), 'pending', 'CHW home visit assigned')`,
+       VALUES (?, ?, ?, ?, ?, date('now'), 'pending', 'CHW home visit assigned')`,
       [pregnancy_id, req.user.facility_id || preg.facility_id, assignee, task_type || 'missed_anc', title]
     );
     res.status(201).json({ task_id: result.insertId });
@@ -215,19 +215,20 @@ router.post('/home-visit', authenticate, authorize('chw', 'midwife'), async (req
         if (!task) return res.status(403).json({ error: 'Task is not assigned to you' });
       }
       await pool.execute(
-        `UPDATE followup_tasks SET status = 'completed', notes = ?, completed_at = NOW() WHERE id = ?`,
-        [visitNotes, taskId]
+        `UPDATE followup_tasks SET status = 'completed', notes = ?, completed_at = ? WHERE id = ?`,
+        [visitNotes, new Date().toISOString().slice(0,19).replace('T',' '), taskId]
       );
     } else {
       const [result] = await pool.execute(
         `INSERT INTO followup_tasks (pregnancy_id, facility_id, assigned_to, task_type, title, due_date, status, notes, completed_at)
-         VALUES (?, ?, ?, 'home_visit', ?, CURDATE(), 'completed', ?, NOW())`,
+         VALUES (?, ?, ?, 'home_visit', ?, date('now'), 'completed', ?, ?)`,
         [
           pregnancy_id,
           req.user.facility_id,
           req.user.id,
           `Home visit — ${condition}`,
           visitNotes,
+          new Date().toISOString().slice(0,19).replace('T',' '),
         ]
       );
       taskId = result.insertId;
@@ -239,10 +240,10 @@ router.post('/home-visit', authenticate, authorize('chw', 'midwife'), async (req
       if (preg) {
         await pool.execute(
           `UPDATE mothers SET
-            phone = COALESCE(?, phone),
-            village = COALESCE(?, village)
+            phone = CASE WHEN ? IS NOT NULL THEN ? ELSE phone END,
+            village = CASE WHEN ? IS NOT NULL THEN ? ELSE village END
            WHERE id = ?`,
-          [community_phone || null, community_village || null, preg.mother_id]
+          [community_phone || null, community_phone || null, community_village || null, community_village || null, preg.mother_id]
         );
       }
     }

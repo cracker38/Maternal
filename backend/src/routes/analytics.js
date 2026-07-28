@@ -34,25 +34,16 @@ router.get('/', authenticate, async (req, res) => {
     const refParams = [];
 
     if (scope === 'facility' && facilityId) {
-      wherePreg += ' AND p.facility_id = ?';
-      pregParams.push(facilityId);
-      whereDel += ' AND d.facility_id = ?';
-      delParams.push(facilityId);
-      whereEm += ' AND e.facility_id = ?';
-      emParams.push(facilityId);
-      whereRef += ' AND r.from_facility_id = ?';
-      refParams.push(facilityId);
+      wherePreg += ' AND p.facility_id = ?'; pregParams.push(facilityId);
+      whereDel  += ' AND d.facility_id = ?'; delParams.push(facilityId);
+      whereEm   += ' AND e.facility_id = ?'; emParams.push(facilityId);
+      whereRef  += ' AND r.from_facility_id = ?'; refParams.push(facilityId);
     } else if (scope === 'district' && district) {
-      wherePreg += ' AND f.district = ?';
-      pregParams.push(district);
-      whereDel += ' AND f.district = ?';
-      delParams.push(district);
-      whereEm += ' AND f.district = ?';
-      emParams.push(district);
-      whereRef += ' AND f.district = ?';
-      refParams.push(district);
+      wherePreg += ' AND f.district = ?'; pregParams.push(district);
+      whereDel  += ' AND f.district = ?'; delParams.push(district);
+      whereEm   += ' AND f.district = ?'; emParams.push(district);
+      whereRef  += ' AND f.district = ?'; refParams.push(district);
     }
-    // national (or missing facility/district): no extra filters
 
     const [ancRows] = await pool.execute(
       `SELECT COUNT(DISTINCT p.id) AS pregnancies,
@@ -69,8 +60,8 @@ router.get('/', authenticate, async (req, res) => {
 
     const [delRows] = await pool.execute(
       `SELECT COUNT(*) AS total,
-              COALESCE(SUM(CASE WHEN d.delivery_method = 'csection' THEN 1 ELSE 0 END), 0) AS csections,
-              COALESCE(SUM(CASE WHEN d.blood_loss_ml >= 500 THEN 1 ELSE 0 END), 0) AS pph_approx
+              SUM(CASE WHEN d.delivery_method = 'csection' THEN 1 ELSE 0 END) AS csections,
+              SUM(CASE WHEN d.blood_loss_ml >= 500 THEN 1 ELSE 0 END) AS pph_approx
        FROM deliveries d
        INNER JOIN facilities f ON f.id = d.facility_id
        ${whereDel}`,
@@ -80,8 +71,8 @@ router.get('/', authenticate, async (req, res) => {
 
     const [emRows] = await pool.execute(
       `SELECT COUNT(*) AS total,
-              COALESCE(SUM(CASE WHEN e.status = 'active' THEN 1 ELSE 0 END), 0) AS active_count,
-              COALESCE(SUM(CASE WHEN e.emergency_type = 'pph' THEN 1 ELSE 0 END), 0) AS pph_count
+              SUM(CASE WHEN e.status = 'active' THEN 1 ELSE 0 END) AS active_count,
+              SUM(CASE WHEN e.emergency_type = 'pph' THEN 1 ELSE 0 END) AS pph_count
        FROM emergencies e
        INNER JOIN facilities f ON f.id = e.facility_id
        ${whereEm}`,
@@ -102,8 +93,8 @@ router.get('/', authenticate, async (req, res) => {
 
     const [refRows] = await pool.execute(
       `SELECT COUNT(*) AS total,
-              COALESCE(SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END), 0) AS pending,
-              COALESCE(SUM(CASE WHEN r.urgency = 'emergency' THEN 1 ELSE 0 END), 0) AS emergency_refs
+              SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) AS pending,
+              SUM(CASE WHEN r.urgency = 'emergency' THEN 1 ELSE 0 END) AS emergency_refs
        FROM referrals r
        INNER JOIN facilities f ON f.id = r.from_facility_id
        ${whereRef}`,
@@ -113,10 +104,10 @@ router.get('/', authenticate, async (req, res) => {
 
     const [riskRows] = await pool.execute(
       `SELECT
-         COALESCE(SUM(CASE WHEN p.risk_score = 'LOW' THEN 1 ELSE 0 END), 0) AS low_n,
-         COALESCE(SUM(CASE WHEN p.risk_score = 'MEDIUM' THEN 1 ELSE 0 END), 0) AS medium_n,
-         COALESCE(SUM(CASE WHEN p.risk_score = 'HIGH' THEN 1 ELSE 0 END), 0) AS high_n,
-         COALESCE(SUM(CASE WHEN p.risk_score = 'CRITICAL' THEN 1 ELSE 0 END), 0) AS critical_n
+         SUM(CASE WHEN p.risk_score = 'LOW' THEN 1 ELSE 0 END) AS low_n,
+         SUM(CASE WHEN p.risk_score = 'MEDIUM' THEN 1 ELSE 0 END) AS medium_n,
+         SUM(CASE WHEN p.risk_score = 'HIGH' THEN 1 ELSE 0 END) AS high_n,
+         SUM(CASE WHEN p.risk_score = 'CRITICAL' THEN 1 ELSE 0 END) AS critical_n
        FROM pregnancies p
        INNER JOIN facilities f ON f.id = p.facility_id
        ${wherePreg} AND p.status IN ('anc','labor','postpartum')`,
@@ -127,18 +118,16 @@ router.get('/', authenticate, async (req, res) => {
     const facParams = [];
     let facWhere = 'WHERE 1=1';
     if (scope === 'district' && district) {
-      facWhere += ' AND f.district = ?';
-      facParams.push(district);
+      facWhere += ' AND f.district = ?'; facParams.push(district);
     } else if (scope === 'facility' && facilityId) {
-      facWhere += ' AND f.id = ?';
-      facParams.push(facilityId);
+      facWhere += ' AND f.id = ?'; facParams.push(facilityId);
     }
 
     const [byFacilityRaw] = await pool.execute(
       `SELECT f.id, f.name, f.district,
               COUNT(DISTINCT p.id) AS pregnancies,
-              COALESCE(SUM(CASE WHEN p.status = 'labor' THEN 1 ELSE 0 END), 0) AS in_labor,
-              COALESCE(SUM(CASE WHEN p.risk_score IN ('HIGH','CRITICAL') THEN 1 ELSE 0 END), 0) AS high_risk
+              SUM(CASE WHEN p.status = 'labor' THEN 1 ELSE 0 END) AS in_labor,
+              SUM(CASE WHEN p.risk_score IN ('HIGH','CRITICAL') THEN 1 ELSE 0 END) AS high_risk
        FROM facilities f
        LEFT JOIN pregnancies p ON p.facility_id = f.id
        ${facWhere}
@@ -148,13 +137,13 @@ router.get('/', authenticate, async (req, res) => {
     );
 
     const [monthlyRaw] = await pool.execute(
-      `SELECT DATE_FORMAT(d.delivery_time, '%Y-%m') AS month,
+      `SELECT strftime('%Y-%m', d.delivery_time) AS month,
               COUNT(*) AS deliveries,
-              COALESCE(SUM(CASE WHEN d.delivery_method = 'csection' THEN 1 ELSE 0 END), 0) AS csections
+              SUM(CASE WHEN d.delivery_method = 'csection' THEN 1 ELSE 0 END) AS csections
        FROM deliveries d
        INNER JOIN facilities f ON f.id = d.facility_id
        ${whereDel}
-       GROUP BY DATE_FORMAT(d.delivery_time, '%Y-%m')
+       GROUP BY strftime('%Y-%m', d.delivery_time)
        ORDER BY month DESC
        LIMIT 12`,
       delParams
@@ -174,18 +163,12 @@ router.get('/', authenticate, async (req, res) => {
     const pncCoverage = ppMothers ? Math.round((pncTouched / ppMothers) * 100) : 0;
 
     const by_facility = byFacilityRaw.map((f) => ({
-      id: n(f.id),
-      name: f.name,
-      district: f.district,
-      pregnancies: n(f.pregnancies),
-      in_labor: n(f.in_labor),
-      high_risk: n(f.high_risk),
+      id: n(f.id), name: f.name, district: f.district,
+      pregnancies: n(f.pregnancies), in_labor: n(f.in_labor), high_risk: n(f.high_risk),
     }));
 
     const monthly_deliveries = monthlyRaw.map((m) => ({
-      month: m.month,
-      deliveries: n(m.deliveries),
-      csections: n(m.csections),
+      month: m.month, deliveries: n(m.deliveries), csections: n(m.csections),
     }));
 
     res.json({
@@ -204,14 +187,11 @@ router.get('/', authenticate, async (req, res) => {
         high_risk: n(risk.high_n) + n(risk.critical_n),
       },
       risk_distribution: {
-        low_n: n(risk.low_n),
-        medium_n: n(risk.medium_n),
-        high_n: n(risk.high_n),
-        critical_n: n(risk.critical_n),
+        low_n: n(risk.low_n), medium_n: n(risk.medium_n),
+        high_n: n(risk.high_n), critical_n: n(risk.critical_n),
       },
       referrals: {
-        total: n(referrals.total),
-        pending: n(referrals.pending),
+        total: n(referrals.total), pending: n(referrals.pending),
         emergency_refs: n(referrals.emergency_refs),
       },
       by_facility,
@@ -224,11 +204,7 @@ router.get('/', authenticate, async (req, res) => {
     });
   } catch (e) {
     console.error('Analytics error:', e);
-    res.status(500).json({
-      error: 'Analytics failed',
-      detail: e.message || String(e),
-      code: e.code || null,
-    });
+    res.status(500).json({ error: 'Analytics failed', detail: e.message || String(e) });
   }
 });
 

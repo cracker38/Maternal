@@ -31,7 +31,7 @@ router.post('/', authenticate, authorize('midwife', 'doctor'), async (req, res) 
       [
         b.pregnancy_id,
         req.user.facility_id,
-        b.delivery_time || new Date(),
+        b.delivery_time ? new Date(b.delivery_time).toISOString().slice(0,19).replace('T',' ') : new Date().toISOString().slice(0,19).replace('T',' '),
         b.delivery_method,
         b.blood_loss_ml ?? null,
         b.tears || 'none',
@@ -95,7 +95,7 @@ router.post('/', authenticate, authorize('midwife', 'doctor'), async (req, res) 
   } catch (e) {
     await conn.rollback();
     console.error(e);
-    if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Delivery already recorded' });
+    if (e.message && e.message.includes('UNIQUE')) return res.status(409).json({ error: 'Delivery already recorded' });
     res.status(500).json({ error: 'Delivery documentation failed' });
   } finally {
     conn.release();

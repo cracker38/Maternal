@@ -34,13 +34,14 @@ router.post('/activate', authenticate, authorize('midwife', 'doctor'), async (re
     await conn.beginTransaction();
     const [result] = await conn.execute(
       `INSERT INTO emergencies (pregnancy_id, facility_id, emergency_type, activated_by, responding_person, activated_at, notes)
-       VALUES (?, ?, ?, ?, ?, NOW(), ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         pregnancy_id,
         req.user.facility_id,
         emergency_type,
         req.user.id,
         responding_person || req.user.full_name || null,
+        new Date().toISOString().slice(0,19).replace('T',' '),
         notes || null,
       ]
     );
@@ -134,18 +135,17 @@ router.patch('/actions/:actionId', authenticate, authorize('midwife', 'doctor'),
     await pool.execute(
       `UPDATE emergency_actions SET
         performed = ?,
-        medication = COALESCE(?, medication),
-        responsible_person = COALESCE(?, responsible_person),
-        performed_at = IF(?, NOW(), performed_at),
-        performed_by = IF(?, ?, performed_by)
+        medication = CASE WHEN ? IS NOT NULL THEN ? ELSE medication END,
+        responsible_person = CASE WHEN ? IS NOT NULL THEN ? ELSE responsible_person END,
+        performed_at = CASE WHEN ? = 1 THEN ? ELSE performed_at END,
+        performed_by = CASE WHEN ? = 1 THEN ? ELSE performed_by END
        WHERE id = ?`,
       [
         performed ? 1 : 0,
-        medication || null,
-        responsible_person || req.user.full_name,
-        performed ? 1 : 0,
-        performed ? 1 : 0,
-        req.user.id,
+        medication || null, medication || null,
+        responsible_person || req.user.full_name, responsible_person || req.user.full_name,
+        performed ? 1 : 0, new Date().toISOString().slice(0,19).replace('T',' '),
+        performed ? 1 : 0, req.user.id,
         req.params.actionId,
       ]
     );
@@ -164,11 +164,11 @@ router.patch('/:id/status', authenticate, authorize('midwife', 'doctor'), async 
     const { status, outcome, responding_person } = req.body;
     await pool.execute(
       `UPDATE emergencies SET
-        status = COALESCE(?, status),
-        outcome = COALESCE(?, outcome),
-        responding_person = COALESCE(?, responding_person)
+        status = CASE WHEN ? IS NOT NULL THEN ? ELSE status END,
+        outcome = CASE WHEN ? IS NOT NULL THEN ? ELSE outcome END,
+        responding_person = CASE WHEN ? IS NOT NULL THEN ? ELSE responding_person END
        WHERE id = ?`,
-      [status || null, outcome || null, responding_person || null, req.params.id]
+      [status || null, status || null, outcome || null, outcome || null, responding_person || null, responding_person || null, req.params.id]
     );
     await audit(
       req.user.id,

@@ -43,15 +43,17 @@ router.post('/assess', authenticate, authorize('midwife', 'doctor', 'chw'), asyn
     });
 
     await conn.beginTransaction();
+    const nowStr = new Date().toISOString().slice(0,19).replace('T',' ');
     const [result] = await conn.execute(
       `INSERT INTO postpartum_assessments (pregnancy_id, facility_id, checkpoint, assessed_at, bleeding, blood_loss_ml,
         uterus_tone, bp_systolic, bp_diastolic, temperature, breastfeeding, pain_score, mental_health,
         mood_changes, support_available, family_planning, assessed_by, notes)
-       VALUES (?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         b.pregnancy_id,
         req.user.facility_id,
         b.checkpoint,
+        nowStr,
         b.bleeding || 'normal',
         b.blood_loss_ml ?? null,
         b.uterus_tone || 'firm',
@@ -82,8 +84,8 @@ router.post('/assess', authenticate, authorize('midwife', 'doctor', 'chw'), asyn
     if (evaluation.pph_suspected) {
       const [em] = await conn.execute(
         `INSERT INTO emergencies (pregnancy_id, facility_id, emergency_type, activated_by, responding_person, activated_at, notes)
-         VALUES (?, ?, 'pph', ?, ?, NOW(), 'Auto-activated by PPH AI alert system — requires clinician confirmation')`,
-        [b.pregnancy_id, req.user.facility_id, req.user.id, req.user.full_name || null]
+         VALUES (?, ?, 'pph', ?, ?, ?, 'Auto-activated by PPH AI alert system — requires clinician confirmation')`,
+        [b.pregnancy_id, req.user.facility_id, req.user.id, req.user.full_name || null, new Date().toISOString().slice(0,19).replace('T',' ')]
       );
       emergencyId = em.insertId;
       const checklist = EMERGENCY_CHECKLISTS.pph;

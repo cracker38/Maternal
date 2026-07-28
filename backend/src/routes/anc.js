@@ -86,14 +86,16 @@ router.post('/', authenticate, authorize('midwife', 'doctor'), async (req, res) 
 
     const nextDate = new Date();
     nextDate.setDate(nextDate.getDate() + evaluation.next_visit_days);
+    const nowStr = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
     const [visitResult] = await conn.execute(
       `INSERT INTO anc_visits (pregnancy_id, visit_number, visit_date, facility_id, conducted_by, next_visit_date,
         counseling_nutrition, counseling_birth_prep, counseling_danger_signs, notes)
-       VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         pregnancy_id,
         vn.next_n,
+        nowStr,
         req.user.facility_id,
         req.user.id,
         nextDate.toISOString().slice(0, 10),
@@ -166,11 +168,14 @@ router.post('/', authenticate, authorize('midwife', 'doctor'), async (req, res) 
 
     const newRisk = maxSeverity(preg.risk_score, evaluation.risk_score);
     const ga = preg.lmp ? calcGestationalAgeWeeks(preg.lmp) : preg.gestational_age_weeks;
+    const newHiv = (labs.hiv_result === 'positive') ? 'positive' : null;
     await conn.execute(
-      `UPDATE pregnancies SET risk_score = ?, risk_percent = GREATEST(COALESCE(risk_percent,0), ?),
+      `UPDATE pregnancies SET risk_score = ?,
+        risk_percent = CASE WHEN COALESCE(risk_percent,0) > ? THEN risk_percent ELSE ? END,
         gestational_age_weeks = COALESCE(?, gestational_age_weeks),
-        hiv_status = IF(? = 'positive', 'positive', hiv_status) WHERE id = ?`,
-      [newRisk, evaluation.risk_percent, ga, labs.hiv_result || 'not_done', pregnancy_id]
+        hiv_status = CASE WHEN ? = 'positive' THEN 'positive' ELSE hiv_status END
+       WHERE id = ?`,
+      [newRisk, evaluation.risk_percent, evaluation.risk_percent, ga, labs.hiv_result || 'not_done', pregnancy_id]
     );
 
     for (const a of evaluation.alerts) {
@@ -251,7 +256,7 @@ router.post('/process-missed', authenticate, authorize('midwife', 'doctor', 'fac
        JOIN mothers m ON m.id = p.mother_id
        WHERE p.facility_id = ?
          AND p.status = 'anc'
-         AND av.next_visit_date < CURDATE()
+         AND av.next_visit_date < date('now')
          AND av.id = (SELECT MAX(av2.id) FROM anc_visits av2 WHERE av2.pregnancy_id = av.pregnancy_id)
          AND NOT EXISTS (
            SELECT 1 FROM followup_tasks ft
@@ -271,7 +276,7 @@ router.post('/process-missed', authenticate, authorize('midwife', 'doctor', 'fac
     for (const row of overdue) {
       const [task] = await conn.execute(
         `INSERT INTO followup_tasks (pregnancy_id, facility_id, assigned_to, task_type, title, due_date, status, notes)
-         VALUES (?, ?, ?, 'missed_anc', ?, CURDATE(), 'pending', ?)`,
+         VALUES (?, ?, ?, 'missed_anc', ?, date('now'), 'pending', ?)`,
         [
           row.pregnancy_id,
           facilityId,

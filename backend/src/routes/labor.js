@@ -65,7 +65,7 @@ router.post('/admit', authenticate, authorize('midwife', 'doctor'), async (req, 
       [
         b.pregnancy_id,
         req.user.facility_id,
-        b.admission_time || new Date(),
+        b.admission_time ? new Date(b.admission_time).toISOString().slice(0,19).replace('T',' ') : new Date().toISOString().slice(0,19).replace('T',' '),
         b.contractions || null,
         b.membrane_status || 'intact',
         b.liquor || null,
@@ -91,7 +91,7 @@ router.post('/admit', authenticate, authorize('midwife', 'doctor'), async (req, 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         result.insertId,
-        b.admission_time || new Date(),
+        b.admission_time ? new Date(b.admission_time).toISOString().slice(0,19).replace('T',' ') : new Date().toISOString().slice(0,19).replace('T',' '),
         b.fhr || null,
         b.liquor || null,
         b.cervical_dilation ?? null,
@@ -258,7 +258,7 @@ router.post('/:laborId/partograph', authenticate, authorize('midwife', 'doctor')
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         req.params.laborId,
-        b.recorded_at || new Date(),
+        b.recorded_at ? new Date(b.recorded_at).toISOString().slice(0,19).replace('T',' ') : new Date().toISOString().slice(0,19).replace('T',' '),
         b.fhr ?? null,
         b.liquor || null,
         b.molding || null,
@@ -313,11 +313,16 @@ router.post('/:laborId/partograph', authenticate, authorize('midwife', 'doctor')
     }
 
     if (evaluation.risk_score === 'CRITICAL' || evaluation.risk_score === 'HIGH') {
-      await pool.execute(
-        `UPDATE pregnancies SET risk_score = ?, risk_percent = GREATEST(COALESCE(risk_percent,0), ?)
-         WHERE id = ? AND FIELD(risk_score,'LOW','MEDIUM','HIGH','CRITICAL') < FIELD(?,'LOW','MEDIUM','HIGH','CRITICAL')`,
-        [evaluation.risk_score, evaluation.risk_percent, labor.pregnancy_id, evaluation.risk_score]
-      );
+      const [[curPreg]] = await pool.execute('SELECT risk_score, risk_percent FROM pregnancies WHERE id = ?', [labor.pregnancy_id]);
+      const rankMap = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 };
+      if ((rankMap[evaluation.risk_score] || 0) > (rankMap[curPreg?.risk_score] || 0)) {
+        await pool.execute(
+          `UPDATE pregnancies SET risk_score = ?,
+            risk_percent = CASE WHEN COALESCE(risk_percent,0) > ? THEN risk_percent ELSE ? END
+           WHERE id = ?`,
+          [evaluation.risk_score, evaluation.risk_percent, evaluation.risk_percent, labor.pregnancy_id]
+        );
+      }
     }
 
     await audit(req.user.id, req.user.facility_id, 'partograph_entry', 'partograph_entry', result.insertId, null, req.ip);

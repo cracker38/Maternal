@@ -40,7 +40,7 @@ router.post('/users', authenticate, authorize('facility_admin'), async (req, res
     res.status(201).json({ user_id: result.insertId });
   } catch (e) {
     console.error(e);
-    if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Username already exists' });
+    if (e.message && e.message.includes('UNIQUE')) return res.status(409).json({ error: 'Username already exists' });
     res.status(500).json({ error: 'Failed to create user' });
   }
 });
@@ -60,12 +60,15 @@ router.patch('/users/:id', authenticate, authorize('facility_admin'), async (req
 
     await pool.execute(
       `UPDATE users SET
-        full_name = COALESCE(?, full_name),
-        role = COALESCE(?, role),
-        phone = COALESCE(?, phone),
-        is_active = COALESCE(?, is_active)
+        full_name = CASE WHEN ? IS NOT NULL THEN ? ELSE full_name END,
+        role = CASE WHEN ? IS NOT NULL THEN ? ELSE role END,
+        phone = CASE WHEN ? IS NOT NULL THEN ? ELSE phone END,
+        is_active = CASE WHEN ? IS NOT NULL THEN ? ELSE is_active END
        WHERE id = ?`,
-      [full_name || null, role || null, phone ?? null, typeof is_active === 'number' || typeof is_active === 'boolean' ? (is_active ? 1 : 0) : null, req.params.id]
+      [full_name || null, full_name || null, role || null, role || null, phone ?? null, phone ?? null,
+       (typeof is_active === 'number' || typeof is_active === 'boolean') ? (is_active ? 1 : 0) : null,
+       (typeof is_active === 'number' || typeof is_active === 'boolean') ? (is_active ? 1 : 0) : null,
+       req.params.id]
     );
 
     if (password) {
@@ -122,7 +125,7 @@ router.get('/facility', authenticate, authorize('facility_admin'), async (req, r
     const [[facility]] = await pool.execute('SELECT * FROM facilities WHERE id = ?', [req.user.facility_id]);
     const [[activity]] = await pool.execute(
       `SELECT COUNT(*) AS logins_today FROM audit_logs
-       WHERE facility_id = ? AND action = 'login' AND DATE(created_at) = CURDATE()`,
+       WHERE facility_id = ? AND action = 'login' AND date(created_at) = date('now')`,
       [req.user.facility_id]
     );
     const [[users]] = await pool.execute(
@@ -168,20 +171,20 @@ router.patch('/facility', authenticate, authorize('facility_admin'), async (req,
 
     await pool.execute(
       `UPDATE facilities SET
-        name = COALESCE(?, name),
-        phone = COALESCE(?, phone),
-        village = COALESCE(?, village),
-        cell_name = COALESCE(?, cell_name),
-        sector = COALESCE(?, sector),
-        facility_type = COALESCE(?, facility_type)
+        name = CASE WHEN ? IS NOT NULL THEN ? ELSE name END,
+        phone = CASE WHEN ? IS NOT NULL THEN ? ELSE phone END,
+        village = CASE WHEN ? IS NOT NULL THEN ? ELSE village END,
+        cell_name = CASE WHEN ? IS NOT NULL THEN ? ELSE cell_name END,
+        sector = CASE WHEN ? IS NOT NULL THEN ? ELSE sector END,
+        facility_type = CASE WHEN ? IS NOT NULL THEN ? ELSE facility_type END
        WHERE id = ?`,
       [
-        name || null,
-        phone ?? null,
-        village || null,
-        cell_name || null,
-        sector || null,
-        facility_type || null,
+        name || null, name || null,
+        phone ?? null, phone ?? null,
+        village || null, village || null,
+        cell_name || null, cell_name || null,
+        sector || null, sector || null,
+        facility_type || null, facility_type || null,
         req.user.facility_id,
       ]
     );

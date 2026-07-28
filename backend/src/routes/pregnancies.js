@@ -126,8 +126,8 @@ router.post('/', authenticate, authorize('midwife', 'doctor', 'chw'), async (req
 
     const year = new Date().getFullYear();
     const [countRows] = await conn.execute(
-      'SELECT COUNT(*) AS c FROM pregnancies WHERE YEAR(registered_at) = ?',
-      [year]
+      "SELECT COUNT(*) AS c FROM pregnancies WHERE strftime('%Y',registered_at) = ?",
+      [String(year)]
     );
     const ancNumber = body.anc_number || `ANC-${year}-${String(countRows[0].c + 1).padStart(4, '0')}`;
 
@@ -210,16 +210,10 @@ router.post('/', authenticate, authorize('midwife', 'doctor', 'chw'), async (req
   } catch (e) {
     await conn.rollback();
     console.error(e);
-    if (e.code === 'ER_DUP_ENTRY') {
+    if (e.message && e.message.includes('UNIQUE')) {
       return res.status(409).json({
         error: 'Mother already registered. Open existing maternal profile.',
         duplicate: true,
-      });
-    }
-    if (e.code === 'ER_BAD_FIELD_ERROR') {
-      return res.status(500).json({
-        error: 'Database schema outdated. Run database/migrations_rules.sql',
-        detail: e.message,
       });
     }
     res.status(500).json({ error: 'Registration failed', detail: e.message });
@@ -236,7 +230,7 @@ router.get('/:id', authenticate, async (req, res) => {
     const [rows] = await pool.execute(
       `SELECT p.*, m.full_name, m.date_of_birth, m.national_id, m.phone, m.village, m.cell_name,
               m.sector, m.district, m.insurance, m.blood_group, m.emergency_contact_name, m.emergency_contact_phone,
-              TIMESTAMPDIFF(YEAR, m.date_of_birth, CURDATE()) AS age,
+              (strftime('%Y','now') - strftime('%Y',m.date_of_birth)) AS age,
               f.name AS facility_name, f.district AS facility_district
        FROM pregnancies p
        JOIN mothers m ON m.id = p.mother_id
@@ -306,9 +300,8 @@ router.get('/:id', authenticate, async (req, res) => {
         ...r,
         abnormal_flags: typeof r.abnormal_flags === 'string' ? JSON.parse(r.abnormal_flags || '[]') : (r.abnormal_flags || []),
       }));
-    } catch (invErr) {
-      // Tables may not exist yet before migration — keep record loadable
-      if (invErr.code !== 'ER_NO_SUCH_TABLE') throw invErr;
+    } catch (_invErr) {
+      // tables may not exist yet
     }
 
     if (pregnancy.lmp) {
