@@ -42,7 +42,7 @@ router.get('/', authenticate, async (req, res) => {
       pScope.params
     );
     const [[ancToday]] = await pool.execute(
-      `SELECT COUNT(*) AS c FROM anc_visits av WHERE DATE(av.visit_date) = CURDATE() ${avScope.sql}`,
+      `SELECT COUNT(*) AS c FROM anc_visits av WHERE date(av.visit_date) = date('now') ${avScope.sql}`,
       avScope.params
     );
     const [[laborCount]] = await pool.execute(
@@ -50,12 +50,12 @@ router.get('/', authenticate, async (req, res) => {
       pScope.params
     );
     const [[deliveriesToday]] = await pool.execute(
-      `SELECT COUNT(*) AS c FROM deliveries d WHERE DATE(d.delivery_time) = CURDATE() ${dScope.sql}`,
+      `SELECT COUNT(*) AS c FROM deliveries d WHERE date(d.delivery_time) = date('now') ${dScope.sql}`,
       dScope.params
     );
     const [[expectedDelivery]] = await pool.execute(
       `SELECT COUNT(*) AS c FROM pregnancies p
-       WHERE p.status IN ('anc','labor') AND p.edd BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+       WHERE p.status IN ('anc','labor') AND p.edd BETWEEN date('now') AND date('now','+7 days')
        ${pScope.sql}`,
       pScope.params
     );
@@ -90,7 +90,7 @@ router.get('/', authenticate, async (req, res) => {
        LEFT JOIN medical_history mh ON mh.pregnancy_id = p.id
        WHERE p.status IN ('anc','labor','postpartum') AND p.risk_score IN ('CRITICAL','HIGH','MEDIUM')
        ${pScope.sql}
-       ORDER BY FIELD(p.risk_score,'CRITICAL','HIGH','MEDIUM') LIMIT 30`,
+       ORDER BY CASE p.risk_score WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'MEDIUM' THEN 3 ELSE 4 END LIMIT 30`,
       pScope.params
     );
 
@@ -111,7 +111,7 @@ router.get('/', authenticate, async (req, res) => {
               la.id AS labor_id, la.admission_time, la.cervical_dilation, la.fhr, la.bp_systolic, la.bp_diastolic, la.status,
               pe.fhr AS last_fhr, pe.bp_systolic AS last_bp_sys, pe.bp_diastolic AS last_bp_dia,
               pe.cervical_dilation AS last_dilation, pe.recorded_at AS last_obs_at,
-              TIMESTAMPDIFF(HOUR, la.admission_time, NOW()) AS labor_hours
+              CAST((julianday('now') - julianday(la.admission_time)) * 24 AS INTEGER) AS labor_hours
        FROM labor_admissions la
        JOIN pregnancies p ON p.id = la.pregnancy_id
        JOIN mothers m ON m.id = p.mother_id
@@ -154,7 +154,7 @@ router.get('/', authenticate, async (req, res) => {
        JOIN pregnancies p ON p.id = a.pregnancy_id
        JOIN mothers m ON m.id = p.mother_id
        WHERE a.status = 'active' ${aScope.sql}
-       ORDER BY FIELD(a.severity,'CRITICAL','HIGH','MEDIUM','LOW'), a.created_at DESC LIMIT 25`,
+       ORDER BY CASE a.severity WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'MEDIUM' THEN 3 ELSE 4 END, a.created_at DESC LIMIT 25`,
       aScope.params
     );
 
@@ -186,7 +186,7 @@ router.get('/', authenticate, async (req, res) => {
        JOIN pregnancies p ON p.id = r.pregnancy_id
        JOIN mothers m ON m.id = p.mother_id
        WHERE r.status = 'pending' ${rScope.sql}
-       ORDER BY FIELD(r.urgency,'emergency','urgent','routine'), r.created_at DESC LIMIT 20`,
+       ORDER BY CASE r.urgency WHEN 'emergency' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END, r.created_at DESC LIMIT 20`,
       rScope.params
     );
 
@@ -216,7 +216,7 @@ router.get('/', authenticate, async (req, res) => {
 
     const [[completedToday]] = await pool.execute(
       `SELECT COUNT(*) AS c FROM followup_tasks ft
-       WHERE ft.status = 'completed' AND DATE(ft.completed_at) = CURDATE()
+       WHERE ft.status = 'completed' AND date(ft.completed_at) = date('now')
        ${role === 'chw' ? 'AND ft.assigned_to = ?' : ftScope.sql}`,
       role === 'chw' ? [scope.userId] : ftScope.params
     );
@@ -336,11 +336,11 @@ router.get('/', authenticate, async (req, res) => {
 
     if (role === 'facility_admin') {
       const [[logins]] = await pool.execute(
-        `SELECT COUNT(*) AS c FROM audit_logs WHERE facility_id = ? AND action = 'login' AND DATE(created_at) = CURDATE()`,
+        `SELECT COUNT(*) AS c FROM audit_logs WHERE facility_id = ? AND action = 'login' AND date(created_at) = date('now')`,
         [scope.facilityId]
       );
       const [[actions]] = await pool.execute(
-        `SELECT COUNT(*) AS c FROM audit_logs WHERE facility_id = ? AND DATE(created_at) = CURDATE()`,
+        `SELECT COUNT(*) AS c FROM audit_logs WHERE facility_id = ? AND date(created_at) = date('now')`,
         [scope.facilityId]
       );
       const [recentSecurity] = await pool.execute(
@@ -351,11 +351,11 @@ router.get('/', authenticate, async (req, res) => {
       );
       const [staffWorkload] = await pool.execute(
         `SELECT u.id, u.full_name, u.role,
-                (SELECT COUNT(*) FROM anc_visits av WHERE av.conducted_by = u.id AND DATE(av.visit_date) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)) AS anc_7d,
-                (SELECT COUNT(*) FROM audit_logs a WHERE a.user_id = u.id AND DATE(a.created_at) = CURDATE()) AS actions_today
+                (SELECT COUNT(*) FROM anc_visits av WHERE av.conducted_by = u.id AND av.visit_date >= date('now','-7 days')) AS anc_7d,
+                (SELECT COUNT(*) FROM audit_logs a WHERE a.user_id = u.id AND date(a.created_at) = date('now')) AS actions_today
          FROM users u
          WHERE u.facility_id = ? AND u.is_active = 1 AND u.role IN ('midwife','doctor','chw')
-         ORDER BY FIELD(u.role,'midwife','doctor','chw'), u.full_name`,
+         ORDER BY u.role, u.full_name`,
         [scope.facilityId]
       );
       const [[dupPhones]] = await pool.execute(
@@ -417,8 +417,8 @@ router.get('/', authenticate, async (req, res) => {
       const [facRows] = await pool.execute(
         `SELECT f.id, f.name, f.district,
                 COUNT(DISTINCT p.id) AS pregnancies,
-                SUM(p.status = 'labor') AS in_labor,
-                SUM(p.risk_score IN ('HIGH','CRITICAL')) AS high_risk,
+                SUM(CASE WHEN p.status = 'labor' THEN 1 ELSE 0 END) AS in_labor,
+                SUM(CASE WHEN p.risk_score IN ('HIGH','CRITICAL') THEN 1 ELSE 0 END) AS high_risk,
                 (SELECT COUNT(*) FROM deliveries d WHERE d.facility_id = f.id) AS deliveries,
                 (SELECT COUNT(*) FROM emergencies e WHERE e.facility_id = f.id) AS emergencies,
                 (SELECT COUNT(*) FROM referrals r WHERE r.from_facility_id = f.id) AS referrals
@@ -475,7 +475,7 @@ router.get('/', authenticate, async (req, res) => {
            SELECT av2.id FROM anc_visits av2 WHERE av2.pregnancy_id = p.id ORDER BY av2.visit_number DESC LIMIT 1
          )
          WHERE p.status = 'anc' ${pScope.sql}
-         ORDER BY FIELD(p.risk_score,'CRITICAL','HIGH','MEDIUM','LOW'), av.next_visit_date ASC
+         ORDER BY CASE p.risk_score WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'MEDIUM' THEN 3 ELSE 4 END, av.next_visit_date ASC
          LIMIT 20`,
         pScope.params
       );
@@ -950,7 +950,7 @@ router.get('/', authenticate, async (req, res) => {
          LEFT JOIN obstetric_history oh ON oh.pregnancy_id = p.id
          LEFT JOIN medical_history mh ON mh.pregnancy_id = p.id
          WHERE ft.assigned_to = ? AND ft.status IN ('pending','in_progress','completed')
-         ORDER BY FIELD(p.risk_score,'CRITICAL','HIGH','MEDIUM','LOW') LIMIT 40`,
+         ORDER BY CASE p.risk_score WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'MEDIUM' THEN 3 ELSE 4 END LIMIT 40`,
         [scope.userId]
       );
 

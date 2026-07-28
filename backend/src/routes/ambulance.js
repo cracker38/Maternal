@@ -173,7 +173,7 @@ router.patch('/dispatches/:id/assign', authenticate, authorize('midwife', 'docto
       );
     }
     await conn.execute(
-      `UPDATE ambulance_dispatches SET ambulance_id = ?, status = 'assigned', assigned_by = ?, eta_minutes = COALESCE(?, eta_minutes), dispatched_at = NOW()
+      `UPDATE ambulance_dispatches SET ambulance_id = ?, status = 'assigned', assigned_by = ?, eta_minutes = COALESCE(?, eta_minutes), dispatched_at = datetime('now')
        WHERE id = ?`,
       [ambulance_id, req.user.id, eta_minutes ?? null, req.params.id]
     );
