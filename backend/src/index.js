@@ -23,12 +23,10 @@ const PORT = process.env.PORT || 5001;
 
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(cors({
-  origin: (req, callback) => {
+  origin: (origin, callback) => {
     const allowed = (process.env.CORS_ORIGIN || 'http://localhost:5173')
       .split(',')
       .map((s) => s.trim());
-    const origin = req.headers.origin;
-    // Allow any vercel.app preview URL + explicitly listed origins
     if (!origin || allowed.includes(origin) || /\.vercel\.app$/.test(origin)) {
       callback(null, true);
     } else {
