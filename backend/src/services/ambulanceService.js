@@ -58,7 +58,7 @@ async function getActiveDispatches(facilityId, { pregnancyId, emergencyId, labor
     sql += ' AND d.labor_admission_id = ?';
     params.push(laborId);
   }
-  sql += ' ORDER BY FIELD(d.urgency,"emergency","urgent","standby"), d.created_at DESC';
+  sql += " ORDER BY CASE d.urgency WHEN 'emergency' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END, d.created_at DESC";
   const [rows] = await pool.execute(sql, params);
   return rows;
 }
